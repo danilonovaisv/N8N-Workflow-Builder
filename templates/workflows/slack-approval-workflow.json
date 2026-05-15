@@ -46,7 +46,9 @@
         "httpMethod": "POST",
         "path": "slack-interaction",
         "responseMode": "responseNode",
-        "options": {}
+        "options": {
+          "rawBody": true
+        }
       },
       "id": "slack-interaction-webhook",
       "name": "Slack Interaction Webhook",
@@ -57,7 +59,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Parse Slack interaction payload\nconst payload = JSON.parse($input.first().json.body.payload || '{}');\n\nconst action = payload.actions?.[0] || {};\nconst user = payload.user || {};\nconst message = payload.message || {};\n\nreturn [{\n  json: {\n    action_id: action.action_id,\n    request_id: action.value,\n    user_id: user.id,\n    user_name: user.name,\n    approved: action.action_id === 'approve_routine',\n    response_url: payload.response_url,\n    original_message: message,\n    timestamp: new Date().toISOString()\n  }\n}];"
+        "jsCode": "// Parse Slack interaction payload - handles multiple formats\nconst input = $input.first().json;\nlet payload;\n\n// Try different ways Slack data might arrive\nif (typeof input.payload === 'string') {\n  payload = JSON.parse(input.payload);\n} else if (typeof input.body?.payload === 'string') {\n  payload = JSON.parse(input.body.payload);\n} else if (input.body && typeof input.body === 'object') {\n  payload = input.body;\n} else {\n  payload = input;\n}\n\nconst action = payload.actions?.[0] || {};\nconst user = payload.user || {};\nconst message = payload.message || {};\n\nreturn [{\n  json: {\n    action_id: action.action_id,\n    request_id: action.value,\n    user_id: user.id,\n    user_name: user.name || user.username || 'Unknown',\n    approved: action.action_id === 'approve_routine',\n    response_url: payload.response_url,\n    original_message: message,\n    timestamp: new Date().toISOString()\n  }\n}];"
       },
       "id": "parse-slack-payload",
       "name": "Parse Slack Payload",
