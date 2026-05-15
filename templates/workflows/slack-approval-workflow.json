@@ -1,0 +1,265 @@
+{
+  "name": "Slack Approval Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "start-approval",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "trigger-approval",
+      "name": "Start Approval Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "start-approval-webhook"
+    },
+    {
+      "parameters": {
+        "url": "YOUR_SLACK_WEBHOOK_URL",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  \"text\": \"Aprovação necessária para: \" + $json.routine_name,\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"text\": {\n        \"type\": \"plain_text\",\n        \"text\": \"🔔 Solicitação de Aprovação\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*Rotina:* \" + $json.routine_name + \"\\n*Descrição:* \" + ($json.description || \"N/A\") + \"\\n*Solicitante:* \" + ($json.requester || \"Sistema\") + \"\\n*ID:* \" + $json.request_id\n      }\n    },\n    {\n      \"type\": \"actions\",\n      \"block_id\": \"approval_actions_\" + $json.request_id,\n      \"elements\": [\n        {\n          \"type\": \"button\",\n          \"text\": {\n            \"type\": \"plain_text\",\n            \"text\": \"✅ Aprovar\"\n          },\n          \"style\": \"primary\",\n          \"action_id\": \"approve_routine\",\n          \"value\": $json.request_id\n        },\n        {\n          \"type\": \"button\",\n          \"text\": {\n            \"type\": \"plain_text\",\n            \"text\": \"❌ Rejeitar\"\n          },\n          \"style\": \"danger\",\n          \"action_id\": \"reject_routine\",\n          \"value\": $json.request_id\n        }\n      ]\n    }\n  ]\n}) }}",
+        "options": {}
+      },
+      "id": "send-slack-message",
+      "name": "Send Slack Approval Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"success\": true, \"message\": \"Approval request sent\", \"request_id\": $json.request_id } }}"
+      },
+      "id": "respond-approval-sent",
+      "name": "Respond Approval Sent",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "slack-interaction",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "slack-interaction-webhook",
+      "name": "Slack Interaction Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 550],
+      "webhookId": "slack-interaction-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Slack interaction payload\nconst payload = JSON.parse($input.first().json.body.payload || '{}');\n\nconst action = payload.actions?.[0] || {};\nconst user = payload.user || {};\nconst message = payload.message || {};\n\nreturn [{\n  json: {\n    action_id: action.action_id,\n    request_id: action.value,\n    user_id: user.id,\n    user_name: user.name,\n    approved: action.action_id === 'approve_routine',\n    response_url: payload.response_url,\n    original_message: message,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "parse-slack-payload",
+      "name": "Parse Slack Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 550]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.approved }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-approval",
+      "name": "Check Approval Decision",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [750, 550]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Execute the approved routine\nconst requestId = $input.first().json.request_id;\nconst userName = $input.first().json.user_name;\n\n// Add your routine execution logic here\nconsole.log(`Routine ${requestId} approved by ${userName}`);\n\nreturn [{\n  json: {\n    ...$input.first().json,\n    execution_status: 'completed',\n    executed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "execute-routine",
+      "name": "Execute Routine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 450]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.response_url }}",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  \"replace_original\": true,\n  \"text\": \"✅ Rotina aprovada e executada\",\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"✅ *Rotina Aprovada*\\n\\n*ID:* \" + $json.request_id + \"\\n*Aprovado por:* \" + $json.user_name + \"\\n*Data:* \" + $json.executed_at\n      }\n    }\n  ]\n}) }}",
+        "options": {}
+      },
+      "id": "update-slack-approved",
+      "name": "Update Slack - Approved",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 450]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log the rejection\nconst requestId = $input.first().json.request_id;\nconst userName = $input.first().json.user_name;\n\nconsole.log(`Routine ${requestId} rejected by ${userName}`);\n\nreturn [{\n  json: {\n    ...$input.first().json,\n    rejection_status: 'rejected',\n    rejected_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "handle-rejection",
+      "name": "Handle Rejection",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 650]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.response_url }}",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  \"replace_original\": true,\n  \"text\": \"❌ Rotina rejeitada\",\n  \"blocks\": [\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"❌ *Rotina Rejeitada*\\n\\n*ID:* \" + $json.request_id + \"\\n*Rejeitado por:* \" + $json.user_name + \"\\n*Data:* \" + $json.rejected_at\n      }\n    }\n  ]\n}) }}",
+        "options": {}
+      },
+      "id": "update-slack-rejected",
+      "name": "Update Slack - Rejected",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 650]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": ""
+      },
+      "id": "respond-to-slack",
+      "name": "Respond to Slack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1500, 550]
+    }
+  ],
+  "connections": {
+    "Start Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Send Slack Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Slack Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Respond Approval Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Interaction Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Slack Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Slack Payload": {
+      "main": [
+        [
+          {
+            "node": "Check Approval Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Approval Decision": {
+      "main": [
+        [
+          {
+            "node": "Execute Routine",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Handle Rejection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Routine": {
+      "main": [
+        [
+          {
+            "node": "Update Slack - Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handle Rejection": {
+      "main": [
+        [
+          {
+            "node": "Update Slack - Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Slack - Approved": {
+      "main": [
+        [
+          {
+            "node": "Respond to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Slack - Rejected": {
+      "main": [
+        [
+          {
+            "node": "Respond to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionTimeout": 300,
+    "timezone": "America/Sao_Paulo"
+  },
+  "tags": ["slack", "approval", "workflow", "interactive"]
+}
